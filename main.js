@@ -178,9 +178,9 @@ function loadImage (file, callback) {
   });
 }
 
-function check (file) {
+function check (file, dbFile) {
   loadImage(file, function (data) {
-    let db = JSON.parse(fs.readFileSync('/dev/stdin').toString());
+    let db = JSON.parse(fs.readFileSync(dbFile).toString());
 
     let candidates = [];
     for (let i = 0; i < db.length; i++) {
@@ -219,7 +219,7 @@ switch (argv[1]) {
     break;
 
   case '--check':
-    check(argv[2]);
+    check(argv[2], argv[3]);
     break;
 
   default:
