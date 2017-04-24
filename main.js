@@ -178,37 +178,52 @@ function loadImage (file, callback) {
   });
 }
 
-function check (file, dbFile) {
-  loadImage(file, function (data) {
-    let db = JSON.parse(fs.readFileSync(dbFile).toString());
+function check (dbFile, files) {
+  let db = JSON.parse(fs.readFileSync(dbFile).toString());
 
-    let candidates = [];
-    for (let i = 0; i < db.length; i++) {
-      let entry = normalize(db[i]);
-      if (entry.time === data.time) {
-        candidates.push(entry);
+  function loop(files) {
+    if (files.length === 0) {
+      process.exit(0);
+    }
+    let file = files.shift();
+
+    function checkImage (file, callback) {
+      loadImage(file, function (data) {
+        let candidates = [];
+        for (let i = 0; i < db.length; i++) {
+          let entry = normalize(db[i]);
+          if (entry.time === data.time) {
+            candidates.push(entry);
+          }
+        }
+
+        if (candidates.length === 0) {
+          return callback('no matching times');
+        }
+
+        let nameMatches = candidates.filter(x => x.name === data.name);
+        if (nameMatches.length === 0) {
+          return callback('no matching names');
+        }
+
+        if (nameMatches.length === 1) {
+          return callback(null, 'ok');
+        } else {
+          return callback('too many matches');
+        }
+      });
+    }
+
+    checkImage(file, function(err, result) {
+      if (err) {
+        console.log(file + ': ' + err);
+      } else {
+        console.log(file + ': ' + result);
       }
-    }
-
-    if (candidates.length === 0) {
-      process.exit(1);
-    }
-    console.error('Found matching times');
-
-    let nameMatches = candidates.filter(x => x.name === data.name);
-    if (nameMatches.length === 0) {
-      console.error('No matching names');
-      process.exit(2);
-    }
-
-    if (nameMatches.length === 1) {
-      console.error('Exactly one matching name, success');
-      return true;
-    } else {
-      console.error('Too many matches');
-      process.exit(3);
-    }
-  })
+      loop(files);
+    });
+  }
+  loop(files);
 }
 
 
@@ -219,7 +234,7 @@ switch (argv[1]) {
     break;
 
   case '--check':
-    check(argv[2], argv[3]);
+    check(argv[2], argv.slice(3));
     break;
 
   default:
