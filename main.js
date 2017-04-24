@@ -160,13 +160,13 @@ function normalize (o) {
 }
 
 function loadImage (file, callback) {
-  new ExifImage({ image : file }, function (error, result) {
-    if (error) {
-      console.error('Error: '+error.message);
-      process.exit(1);
-    } else {
+  try {
+    new ExifImage({ image : file }, function (error, result) {
+      if (error) {
+        return callback('Error: '+error.message);
+      }
       let d = result.exif;
-      callback(normalize({
+      callback(null, normalize({
         time: d.DateTimeOriginal,
         exposureTime: d.ExposureTime,
         aperture: d.ApertureValue,
@@ -174,8 +174,10 @@ function loadImage (file, callback) {
         focalLength: Math.round(d.FocalLength),
         name: path.basename(file),
       }));
-    }
-  });
+    });
+  } catch (e) {
+    callback('Error: ' +e);
+  }
 }
 
 function check (dbFile, files) {
@@ -188,7 +190,11 @@ function check (dbFile, files) {
     let file = files.shift();
 
     function checkImage (file, callback) {
-      loadImage(file, function (data) {
+      loadImage(file, function (err, data) {
+        if (err) {
+          return callback(err);
+        }
+
         let candidates = [];
         for (let i = 0; i < db.length; i++) {
           let entry = normalize(db[i]);
