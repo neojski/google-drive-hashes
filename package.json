@@ -1,0 +1,7 @@
+{
+  "dependencies": {
+    "exif": "^0.6.0",
+    "google-auth-library": "^0.10.0",
+    "googleapis": "^19.0.0"
+  }
+}
