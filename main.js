@@ -4,8 +4,11 @@ var fs = require('fs');
 var readline = require('readline');
 var google = require('googleapis');
 var googleAuth = require('google-auth-library');
-var ExifImage = require('exif').ExifImage;
 var path = require('path');
+
+var exiftool = require('node-exiftool')
+var exiftoolBin = require('dist-exiftool')
+var ep = new exiftool.ExiftoolProcess(exiftoolBin)
 
 // If modifying these scopes, delete your previously saved credentials
 // at ~/.credentials/drive-nodejs-quickstart.json
@@ -117,7 +120,7 @@ function listFiles(auth, pageToken) {
     auth: auth,
     pageSize: 1000,
     pageToken: pageToken,
-    fields: "nextPageToken, files(md5Checksum, name, size, imageMediaMetadata)"
+    fields: "nextPageToken, files(name, size, imageMediaMetadata, videoMediaMetadata)"
   }, function(err, response) {
     if (err) {
       console.log('The API returned an error: ' + err);
@@ -139,6 +142,14 @@ function listFiles(auth, pageToken) {
         }));
         console.log(',');
       }
+      meta = file.videoMediaMetadata;
+      if (meta) {
+        console.log(JSON.stringify({
+          name: file.name,
+          durationMillis: meta.durationMillis
+        }));
+        console.log(',');
+      }
     }
     if (response.nextPageToken) {
       listFiles(auth, response.nextPageToken);
@@ -149,31 +160,55 @@ function listFiles(auth, pageToken) {
 }
 
 function normalize (o) {
-  return {
-    time: o.time,
-    exposureTime: Math.round(o.exposureTime * 1),
-    aperture: Math.round(o.aperture * 1),
-    isoSpeed: Math.round(o.isoSpeed / 1),
-    focalLength: Math.round(o.focalLength),
-    name: o.name,
-  };
+  if (o.time) {
+    return {
+      time: o.time,
+      exposureTime: Math.round(o.exposureTime * 1),
+      aperture: Math.round(o.aperture * 1),
+      isoSpeed: Math.round(o.isoSpeed / 1),
+      focalLength: Math.round(o.focalLength),
+      name: o.name,
+    };
+  } else {
+    // round to 10 of millis as exif doesn't have enough resolution
+    return {
+      name: o.name,
+      durationMillis: Math.round(o.durationMillis / 10) * 10,
+    };
+  }
 }
 
 function loadImage (file, callback) {
   try {
-    new ExifImage({ image : file }, function (error, result) {
-      if (error) {
-        return callback('Error: '+error.message);
+    ep.open().then(() => ep.readMetadata(file)).then((result) => {
+      if (result.error) {
+        throw result.error;
       }
-      let d = result.exif;
-      callback(null, normalize({
-        time: d.DateTimeOriginal,
-        exposureTime: d.ExposureTime,
-        aperture: d.ApertureValue,
-        isoSpeed: d.ISO,
-        focalLength: Math.round(d.FocalLength),
-        name: path.basename(file),
-      }));
+      if (result.data.length !== 1) {
+        throw 'Incorrect number of data in result';
+      }
+      result = result.data[0];
+
+      let name = path.basename(file);
+      let data;
+      // TODO: I have no idea what's the difference between Duration and TrackDuration and why Google uses the latter
+      if (result.TrackDuration) {
+        return callback(null, {
+          durationMillis: 1000 * parseFloat(result.TrackDuration),
+          name: name,
+        });
+      }
+
+      return callback(null, {
+        time: result.DateTimeOriginal,
+        exposureTime: result.ExposureTime,
+        aperture: result.ApertureValue,
+        isoSpeed: result.ISO,
+        focalLength: Math.round(result.FocalLength),
+        name: name,
+      });
+    }, (error) => {
+      callback(error);
     });
   } catch (e) {
     callback('Error: ' +e);
@@ -189,26 +224,34 @@ function check (dbFile, files) {
     }
     let file = files.shift();
 
+    // for pictures match by time, for videos by duration
+    function matches (d1, d2) {
+      return (d1.time != null && d2.time !=null && d1.time === d2.time) || (d1.durationMillis != null && d2.durationMillis != null && d1.durationMillis === d2.durationMillis);
+    }
+
     function checkImage (file, callback) {
       loadImage(file, function (err, data) {
         if (err) {
           return callback(err);
         }
+        data = normalize(data);
 
         let candidates = [];
         for (let i = 0; i < db.length; i++) {
           let entry = normalize(db[i]);
-          if (entry.time === data.time) {
+          // for pictures
+          if (matches(data, entry)) {
             candidates.push(entry);
           }
         }
 
         if (candidates.length === 0) {
-          return callback('no matching times');
+          return callback('no matching keys');
         }
 
         let nameMatches = candidates.filter(x => x.name === data.name);
         if (nameMatches.length === 0) {
+          console.log(candidates);
           return callback('no matching names');
         }
 
