@@ -180,7 +180,7 @@ function normalize (o) {
 
 function loadImage (file, callback) {
   try {
-    ep.open().then(() => ep.readMetadata(file)).then((result) => {
+    ep.readMetadata(file).then((result) => {
       if (result.error) {
         throw result.error;
       }
@@ -251,7 +251,6 @@ function check (dbFile, files) {
 
         let nameMatches = candidates.filter(x => x.name === data.name);
         if (nameMatches.length === 0) {
-          console.log(candidates);
           return callback('no matching names');
         }
 
@@ -283,7 +282,12 @@ switch (argv[1]) {
     break;
 
   case '--check':
-    check(argv[2], argv.slice(3));
+    ep.open().then(() => {
+      check(argv[2], argv.slice(3));
+    }, () => {
+      console.error('Couldn\'t open exiftool process');
+      process.exit(1);
+    });
     break;
 
   default:
