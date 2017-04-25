@@ -130,8 +130,8 @@ function listFiles(auth, pageToken) {
     var files = response.files;
     for (var i = 0; i < files.length; i++) {
       var file = files[i];
-      var meta = file.imageMediaMetadata;
-      if (meta) {
+      if (file.imageMediaMetadata) {
+        let meta = file.imageMediaMetadata;
         console.log(JSON.stringify({
           name: file.name,
           time: meta.time,
@@ -140,16 +140,18 @@ function listFiles(auth, pageToken) {
           aperture: meta.aperture,
           focalLength: meta.focalLength
         }));
-        console.log(',');
-      }
-      meta = file.videoMediaMetadata;
-      if (meta) {
+      } else if (file.videoMediaMetadata) {
+        let meta = file.videoMediaMetadata;
         console.log(JSON.stringify({
           name: file.name,
           durationMillis: meta.durationMillis
         }));
-        console.log(',');
+      } else {
+        console.log(JSON.stringify({
+          name: file.name,
+        }));
       }
+      console.log(',');
     }
     if (response.nextPageToken) {
       listFiles(auth, response.nextPageToken);
