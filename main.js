@@ -182,22 +182,22 @@ function normalize (o) {
   }
 }
 
-function readMetadata (file) {
+function readMetadatas (files) {
   return new Promise((resolve, reject) => {
-    execFile(exiftoolBin, ['-j', file], (error, stdout, stderr) => {
-      if (error) {
-        return reject(error);
-      }
-      if (stderr !== '') {
-        return reject(error);
-      }
-      return resolve(JSON.parse(stdout)[0]);
+    let args = ['-j'].concat(files);
+    execFile(exiftoolBin, args, (error, stdout, stderr) => {
+      let entries = JSON.parse(stdout);
+      let entriesByFile = {};
+      entries.forEach(entry => {
+        entriesByFile[entry.SourceFile] = entry;
+      });
+      resolve(entriesByFile);
     });
   });
 }
 
-function loadImage (file) {
-  return readMetadata(file).then((result) => {
+function loadImages (files) {
+  function loadImage (file, result) {
     let name = path.basename(file);
     let data;
     // TODO: I have no idea what's the difference between Duration and TrackDuration and why Google uses the latter
@@ -229,6 +229,14 @@ function loadImage (file) {
       focalLength: Math.round(result.FocalLength),
       name: name,
     };
+  }
+
+  return readMetadatas(files).then((results) => {
+    let results2 = {};
+    for (let [k, v] of Object.entries(results)) {
+      results2[k] = loadImage(k, v);
+    }
+    return results2;
   });
 }
 
@@ -271,43 +279,44 @@ function check (dbFile, verbose) {
     return [];
   }
 
+  let batchSize = 100;
   function loop(files) {
     if (files.length === 0) {
       process.exit(0);
     }
-    let file = files.shift();
+    let filesBatch = files.slice(0, batchSize);
 
-    function checkImage (file) {
-      return loadImage(file).then((data) => {
-        data = normalize(data);
+    function checkImage (file, data) {
+      data = normalize(data);
 
-        let candidates = getCandidates(data);
+      let candidates = getCandidates(data);
 
-        if (candidates.length === 0) {
-          throw ('no matching keys');
-        }
+      if (candidates.length === 0) {
+        throw ('no matching keys');
+      }
 
-        let nameMatches = candidates.filter(x => x.name === data.name);
-        if (nameMatches.length === 0) {
-          throw ('no matching names');
-        }
+      let nameMatches = candidates.filter(x => x.name === data.name);
+      if (nameMatches.length === 0) {
+        throw ('no matching names');
+      }
 
-        if (nameMatches.length === 1) {
-          return 'ok';
-        } else {
-          throw ('too many matches');
-        }
-      });
+      if (nameMatches.length === 1) {
+        return 'ok';
+      } else {
+        throw ('too many matches');
+      }
     }
 
-    checkImage(file).then(result => {
-      if (verbose) {
-        console.log(file + ': ' + result);
-      }
-      loop(files);
-    }).catch(err => {
-      console.log(file + ': ' + err);
-      loop(files);
+    loadImages(filesBatch).then(results => {
+      filesBatch.forEach(file => {
+        let data = results[path.resolve(file)];
+        try {
+          console.log(file + ': ' + checkImage(file, data));
+        } catch (e) {
+          console.log(file + ': error ' + e);
+        }
+      });
+      loop (files.slice(batchSize));
     });
   }
 
