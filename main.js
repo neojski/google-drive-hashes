@@ -7,9 +7,9 @@ var google = require('googleapis');
 var googleAuth = require('google-auth-library');
 var path = require('path');
 
-// I wish I could use Sobesednik/node-exiftool (for speed) but #20 make it unusable on Windows
-const execFile = require('child_process').execFile;
-const exiftoolBin = require('dist-exiftool');
+var exiftool = require('node-exiftool')
+var exiftoolBin = require('dist-exiftool')
+var ep = new exiftool.ExiftoolProcess(exiftoolBin)
 
 // If modifying these scopes, delete your previously saved credentials
 // at ~/.credentials/drive-nodejs-quickstart.json
@@ -182,22 +182,16 @@ function normalize (o) {
   }
 }
 
-function readMetadatas (files) {
-  return new Promise((resolve, reject) => {
-    let args = ['-j'].concat(files);
-    execFile(exiftoolBin, args, (error, stdout, stderr) => {
-      let entries = JSON.parse(stdout);
-      let entriesByFile = {};
-      entries.forEach(entry => {
-        entriesByFile[entry.SourceFile] = entry;
-      });
-      resolve(entriesByFile);
-    });
-  });
-}
+function loadImage (file) {
+  return ep.readMetadata(file).then((result) => {
+    if (result.error) {
+      throw result.error;
+    }
+    if (result.data.length !== 1) {
+      throw 'Incorrect number of data in result';
+    }
+    result = result.data[0];
 
-function loadImages (files) {
-  function loadImage (file, result) {
     let name = path.basename(file);
     let data;
     // TODO: I have no idea what's the difference between Duration and TrackDuration and why Google uses the latter
@@ -229,14 +223,6 @@ function loadImages (files) {
       focalLength: Math.round(result.FocalLength),
       name: name,
     };
-  }
-
-  return readMetadatas(files).then((results) => {
-    let results2 = {};
-    for (let [k, v] of Object.entries(results)) {
-      results2[k] = loadImage(k, v);
-    }
-    return results2;
   });
 }
 
@@ -279,44 +265,43 @@ function check (dbFile, verbose) {
     return [];
   }
 
-  let batchSize = 100;
   function loop(files) {
     if (files.length === 0) {
       process.exit(0);
     }
-    let filesBatch = files.slice(0, batchSize);
+    let file = files.shift();
 
-    function checkImage (file, data) {
-      data = normalize(data);
+    function checkImage (file) {
+      return loadImage(file).then((data) => {
+        data = normalize(data);
 
-      let candidates = getCandidates(data);
+        let candidates = getCandidates(data);
 
-      if (candidates.length === 0) {
-        throw ('no matching keys');
-      }
+        if (candidates.length === 0) {
+          throw ('no matching keys');
+        }
 
-      let nameMatches = candidates.filter(x => x.name === data.name);
-      if (nameMatches.length === 0) {
-        throw ('no matching names');
-      }
+        let nameMatches = candidates.filter(x => x.name === data.name);
+        if (nameMatches.length === 0) {
+          throw ('no matching names');
+        }
 
-      if (nameMatches.length === 1) {
-        return 'ok';
-      } else {
-        throw ('too many matches');
-      }
-    }
-
-    loadImages(filesBatch).then(results => {
-      filesBatch.forEach(file => {
-        let data = results[path.resolve(file)];
-        try {
-          console.log(file + ': ' + checkImage(file, data));
-        } catch (e) {
-          console.log(file + ': error ' + e);
+        if (nameMatches.length === 1) {
+          return 'ok';
+        } else {
+          throw ('too many matches');
         }
       });
-      loop (files.slice(batchSize));
+    }
+
+    checkImage(file).then(result => {
+      if (verbose) {
+        console.log(file + ': ' + result);
+      }
+      loop(files);
+    }).catch(err => {
+      console.log(file + ': ' + err);
+      loop(files);
     });
   }
 
@@ -345,5 +330,10 @@ program.option('--download')
 if (program.download) {
   download();
 } else if (program.check) {
-  check(program.check, program.verbose);
+  ep.open().then(() => {
+    check(program.check, program.verbose);
+  }).catch(() => {
+    console.error('Couldn\'t open exiftool process');
+    process.exit(1);
+  });
 }
