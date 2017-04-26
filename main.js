@@ -226,7 +226,7 @@ function loadImage (file) {
   });
 }
 
-function check (dbFile) {
+function check (dbFile, verbose) {
   let db = JSON.parse(fs.readFileSync(dbFile).toString());
 
   function loop(files) {
@@ -279,7 +279,9 @@ function check (dbFile) {
     }
 
     checkImage(file).then(result => {
-      console.log(file + ': ' + result);
+      if (verbose) {
+        console.log(file + ': ' + result);
+      }
       loop(files);
     }).catch(err => {
       console.log(file + ': ' + err);
@@ -306,13 +308,14 @@ function check (dbFile) {
 
 program.option('--download')
   .option('--check <db>')
+  .option('-v, --verbose')
   .parse(process.argv);
 
 if (program.download) {
   download();
 } else if (program.check) {
   ep.open().then(() => {
-    check(program.check);
+    check(program.check, program.verbose);
   }).catch(() => {
     console.error('Couldn\'t open exiftool process');
     process.exit(1);
