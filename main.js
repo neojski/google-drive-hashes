@@ -7,9 +7,9 @@ var google = require('googleapis');
 var googleAuth = require('google-auth-library');
 var path = require('path');
 
-var exiftool = require('node-exiftool')
-var exiftoolBin = require('dist-exiftool')
-var ep = new exiftool.ExiftoolProcess(exiftoolBin)
+// I wish I could use Sobesednik/node-exiftool (for speed) but #20 make it unusable on Windows
+const execFile = require('child_process').execFile;
+const exiftool = require('exiftool.pl');
 
 // If modifying these scopes, delete your previously saved credentials
 // at ~/.credentials/drive-nodejs-quickstart.json
@@ -182,16 +182,22 @@ function normalize (o) {
   }
 }
 
-function loadImage (file) {
-  return ep.readMetadata(file).then((result) => {
-    if (result.error) {
-      throw result.error;
-    }
-    if (result.data.length !== 1) {
-      throw 'Incorrect number of data in result';
-    }
-    result = result.data[0];
+function readMetadata (file) {
+  return new Promise((resolve, reject) => {
+    execFile(exiftool, ['-j', file], (error, stdout, stderr) => {
+      if (error) {
+        return reject(error);
+      }
+      if (stderr !== '') {
+        return reject(error);
+      }
+      return resolve(JSON.parse(stdout)[0]);
+    });
+  });
+}
 
+function loadImage (file) {
+  return readMetadata(file).then((result) => {
     let name = path.basename(file);
     let data;
     // TODO: I have no idea what's the difference between Duration and TrackDuration and why Google uses the latter
@@ -330,10 +336,5 @@ program.option('--download')
 if (program.download) {
   download();
 } else if (program.check) {
-  ep.open().then(() => {
-    check(program.check, program.verbose);
-  }).catch(() => {
-    console.error('Couldn\'t open exiftool process');
-    process.exit(1);
-  });
+  check(program.check, program.verbose);
 }
