@@ -182,16 +182,20 @@ function normalize (o) {
   }
 }
 
-function loadImage (file) {
+function readMetadata(file) {
   return ep.readMetadata(file).then((result) => {
     if (result.error) {
       throw result.error;
     }
     if (result.data.length !== 1) {
-      throw 'Incorrect number of data in result';
+      throw 'Incorrect number of data in result (readMetadata)';
     }
-    result = result.data[0];
+    return result.data[0];
+  });
+}
 
+function loadImage (file) {
+  return readMetadata(file).then((result) => {
     let name = path.basename(file);
     let data;
     // TODO: I have no idea what's the difference between Duration and TrackDuration and why Google uses the latter
@@ -332,8 +336,8 @@ if (program.download) {
 } else if (program.check) {
   ep.open().then(() => {
     check(program.check, program.verbose);
-  }).catch(() => {
-    console.error('Couldn\'t open exiftool process');
+  }).catch(error => {
+    console.error('Couldn\'t open exiftool process: ' + error);
     process.exit(1);
   });
 }
