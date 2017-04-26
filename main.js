@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+var program = require('commander');
 var fs = require('fs');
 var readline = require('readline');
 var google = require('googleapis');
@@ -181,57 +182,51 @@ function normalize (o) {
   }
 }
 
-function loadImage (file, callback) {
-  try {
-    ep.readMetadata(file).then((result) => {
-      if (result.error) {
-        throw result.error;
-      }
-      if (result.data.length !== 1) {
-        throw 'Incorrect number of data in result';
-      }
-      result = result.data[0];
+function loadImage (file) {
+  return ep.readMetadata(file).then((result) => {
+    if (result.error) {
+      throw result.error;
+    }
+    if (result.data.length !== 1) {
+      throw 'Incorrect number of data in result';
+    }
+    result = result.data[0];
 
-      let name = path.basename(file);
-      let data;
-      // TODO: I have no idea what's the difference between Duration and TrackDuration and why Google uses the latter
-      if (result.TrackDuration) {
-        let d = result.TrackDuration;
-        let durationMillis;
-        let precision;
-        if (d.indexOf('s') > -1) {
-          durationMillis = 1000 * parseFloat(d);
-          precision = 3;
-        } else if (d.indexOf(':')) {
-          let matches = d.match(/(\d+):(\d+):(\d+)/);
-          durationMillis = 1000 * ((+matches[1]) * 3600 + (+matches[2]) * 60 + (+matches[3]));
-          precision = 0;
-        }
-        return callback(null, {
-          durationMillis: durationMillis,
-          precision: precision,
-          name: name,
-        });
+    let name = path.basename(file);
+    let data;
+    // TODO: I have no idea what's the difference between Duration and TrackDuration and why Google uses the latter
+    if (result.TrackDuration) {
+      let d = result.TrackDuration;
+      let durationMillis;
+      let precision;
+      if (d.indexOf('s') > -1) {
+        durationMillis = 1000 * parseFloat(d);
+        precision = 3;
+      } else if (d.indexOf(':')) {
+        let matches = d.match(/(\d+):(\d+):(\d+)/);
+        durationMillis = 1000 * ((+matches[1]) * 3600 + (+matches[2]) * 60 + (+matches[3]));
+        precision = 0;
       }
-
-      return callback(null, {
-        // Google uses ModifyDate even though the documentation suggests Create Date
-        time: result.ModifyDate,
-        exposureTime: result.ExposureTime,
-        aperture: result.ApertureValue,
-        isoSpeed: result.ISO,
-        focalLength: Math.round(result.FocalLength),
+      return {
+        durationMillis: durationMillis,
+        precision: precision,
         name: name,
-      });
-    }, (error) => {
-      callback(error);
-    });
-  } catch (e) {
-    callback('Error: ' +e);
-  }
+      };
+    }
+
+    return {
+      // Google uses ModifyDate even though the documentation suggests Create Date
+      time: result.ModifyDate,
+      exposureTime: result.ExposureTime,
+      aperture: result.ApertureValue,
+      isoSpeed: result.ISO,
+      focalLength: Math.round(result.FocalLength),
+      name: name,
+    };
+  });
 }
 
-function check (dbFile, files) {
+function check (dbFile) {
   let db = JSON.parse(fs.readFileSync(dbFile).toString());
 
   function loop(files) {
@@ -253,11 +248,8 @@ function check (dbFile, files) {
       return false;
     }
 
-    function checkImage (file, callback) {
-      loadImage(file, function (err, data) {
-        if (err) {
-          return callback(err);
-        }
+    function checkImage (file) {
+      return loadImage(file).then((data) => {
         data = normalize(data);
 
         let candidates = [];
@@ -270,51 +262,59 @@ function check (dbFile, files) {
         }
 
         if (candidates.length === 0) {
-          return callback('no matching keys');
+          throw ('no matching keys');
         }
 
         let nameMatches = candidates.filter(x => x.name === data.name);
         if (nameMatches.length === 0) {
-          return callback('no matching names');
+          throw ('no matching names');
         }
 
         if (nameMatches.length === 1) {
-          return callback(null, 'ok');
+          return 'ok';
         } else {
-          return callback('too many matches');
+          throw ('too many matches');
         }
       });
     }
 
-    checkImage(file, function(err, result) {
-      if (err) {
-        console.log(file + ': ' + err);
-      } else {
-        console.log(file + ': ' + result);
-      }
+    checkImage(file).then(result => {
+      console.log(file + ': ' + result);
+      loop(files);
+    }).catch(err => {
+      console.log(file + ': ' + err);
       loop(files);
     });
   }
-  loop(files);
+
+  var rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+    terminal: false
+  });
+
+  // TODO: This is a bit inefficient by reading everything into memory but who cares
+  var files = [];
+  rl.on('line', function (file) {
+    files.push(file);
+  });
+  rl.on('close', function () {
+    loop(files);
+  });
 }
 
 
-let argv = process.argv.slice(1);
-switch (argv[1]) {
-  case '--download':
-    download();
-    break;
+program.option('--download')
+  .option('--check <db>')
+  .parse(process.argv);
 
-  case '--check':
-    ep.open().then(() => {
-      check(argv[2], argv.slice(3));
-    }, () => {
-      console.error('Couldn\'t open exiftool process');
-      process.exit(1);
-    });
-    break;
-
-  default:
-    console.log(argv);
-    console.log('unknown option');
+if (program.download) {
+  download();
+} else if (program.check) {
+  ep.open().then(() => {
+    check(program.check);
+  }).catch(() => {
+    console.error('Couldn\'t open exiftool process');
+    process.exit(1);
+  });
 }
