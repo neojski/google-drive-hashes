@@ -202,7 +202,8 @@ function loadImage (file, callback) {
       }
 
       return callback(null, {
-        time: result.DateTimeOriginal,
+        // Google uses ModifyDate even though the documentation suggests Create Date
+        time: result.ModifyDate,
         exposureTime: result.ExposureTime,
         aperture: result.ApertureValue,
         isoSpeed: result.ISO,
