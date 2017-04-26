@@ -9,7 +9,7 @@ var path = require('path');
 
 // I wish I could use Sobesednik/node-exiftool (for speed) but #20 make it unusable on Windows
 const execFile = require('child_process').execFile;
-const exiftool = require('exiftool.pl');
+const exiftoolBin = require('dist-exiftool');
 
 // If modifying these scopes, delete your previously saved credentials
 // at ~/.credentials/drive-nodejs-quickstart.json
@@ -184,7 +184,7 @@ function normalize (o) {
 
 function readMetadata (file) {
   return new Promise((resolve, reject) => {
-    execFile(exiftool, ['-j', file], (error, stdout, stderr) => {
+    execFile(exiftoolBin, ['-j', file], (error, stdout, stderr) => {
       if (error) {
         return reject(error);
       }
