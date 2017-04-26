@@ -176,6 +176,7 @@ function normalize (o) {
     return {
       name: o.name,
       durationMillis: Math.round(o.durationMillis / 10) * 10,
+      precision: o.precision,
     };
   }
 }
@@ -195,8 +196,20 @@ function loadImage (file, callback) {
       let data;
       // TODO: I have no idea what's the difference between Duration and TrackDuration and why Google uses the latter
       if (result.TrackDuration) {
+        let d = result.TrackDuration;
+        let durationMillis;
+        let precision;
+        if (d.indexOf('s') > -1) {
+          durationMillis = 1000 * parseFloat(d);
+          precision = 3;
+        } else if (d.indexOf(':')) {
+          let matches = d.match(/(\d+):(\d+):(\d+)/);
+          durationMillis = 1000 * ((+matches[1]) * 3600 + (+matches[2]) * 60 + (+matches[3]));
+          precision = 0;
+        }
         return callback(null, {
-          durationMillis: 1000 * parseFloat(result.TrackDuration),
+          durationMillis: durationMillis,
+          precision: precision,
           name: name,
         });
       }
@@ -228,8 +241,16 @@ function check (dbFile, files) {
     let file = files.shift();
 
     // for pictures match by time, for videos by duration
-    function matches (d1, d2) {
-      return (d1.time != null && d2.time !=null && d1.time === d2.time) || (d1.durationMillis != null && d2.durationMillis != null && d1.durationMillis === d2.durationMillis);
+    function matches (local, remote) {
+      if (local.time != null && remote.time != null) {
+        return local.time === remote.time;
+      } else if (local.durationMillis != null && remote.durationMillis != null) {
+        if (local.precision < 0 || local.precision > 3) {
+          throw 'incorrect precision';
+        }
+        return Math.abs(local.durationMillis - remote.durationMillis) < Math.pow(10, 3 - local.precision);
+      }
+      return false;
     }
 
     function checkImage (file, callback) {
