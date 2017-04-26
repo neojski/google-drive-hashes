@@ -121,7 +121,7 @@ function listFiles(auth, pageToken) {
     auth: auth,
     pageSize: 1000,
     pageToken: pageToken,
-    fields: "nextPageToken, files(name, size, imageMediaMetadata, videoMediaMetadata)"
+    fields: "nextPageToken, files(name, imageMediaMetadata, videoMediaMetadata)"
   }, function(err, response) {
     if (err) {
       console.log('The API returned an error: ' + err);
@@ -163,7 +163,13 @@ function listFiles(auth, pageToken) {
 }
 
 function normalize (o) {
-  if (o.time) {
+  if (o.durationMillis) {
+    return {
+      name: o.name,
+      durationMillis: o.durationMillis,
+      precision: o.precision,
+    };
+  } else {
     return {
       time: o.time,
       exposureTime: Math.round(o.exposureTime * 1),
@@ -171,13 +177,6 @@ function normalize (o) {
       isoSpeed: Math.round(o.isoSpeed / 1),
       focalLength: Math.round(o.focalLength),
       name: o.name,
-    };
-  } else {
-    // round to 10 of millis as exif doesn't have enough resolution
-    return {
-      name: o.name,
-      durationMillis: Math.round(o.durationMillis / 10) * 10,
-      precision: o.precision,
     };
   }
 }
@@ -195,7 +194,7 @@ function isAscii (str) {
 function readMetadata(file) {
   // TODO: This whole dance is because of Sobesednik/node-exiftool/issues/20
   let ascii = file;
-  if (!isAscii (path.basename(file))) {
+  if (!isAscii (file)) {
     let dir = fs.mkdtempSync('read-metadata-');
     ascii = path.join(dir, 'temp');
     console.error('renaming ' + file + ' to ' + ascii);
@@ -233,7 +232,7 @@ function loadImage (file) {
       } else if (d.indexOf(':')) {
         let matches = d.match(/(\d+):(\d+):(\d+)/);
         durationMillis = 1000 * ((+matches[1]) * 3600 + (+matches[2]) * 60 + (+matches[3]));
-        precision = 0;
+        precision = 1;
       }
       return {
         durationMillis: durationMillis,
@@ -293,6 +292,17 @@ function check (dbFile, verbose) {
     return [];
   }
 
+  // some of our images are very old and don't have ModifyDate exif
+  function checkPrimitiveImage (local) {
+    let basename = path.basename(local);
+    for (let i = 0; i < db.length; i++) {
+      if (db[i].name === basename && db[i].time == null) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   function loop(files) {
     if (files.length === 0) {
       process.exit(0);
@@ -306,6 +316,10 @@ function check (dbFile, verbose) {
         let candidates = getCandidates(data);
 
         if (candidates.length === 0) {
+          if (checkPrimitiveImage(file)) {
+            console.error('image with no metadata matches: ' + file);
+            return 'ok';
+          }
           throw ('no matching keys');
         }
 
