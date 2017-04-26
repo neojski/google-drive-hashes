@@ -11,6 +11,9 @@ var exiftool = require('node-exiftool')
 var exiftoolBin = require('dist-exiftool')
 var ep = new exiftool.ExiftoolProcess(exiftoolBin)
 
+var Iconv  = require('iconv').Iconv;
+var iconv = new Iconv('UTF-8', 'ASCII//TRANSLIT');
+
 // If modifying these scopes, delete your previously saved credentials
 // at ~/.credentials/drive-nodejs-quickstart.json
 var SCOPES = ['https://www.googleapis.com/auth/drive.metadata.readonly'];
@@ -182,8 +185,29 @@ function normalize (o) {
   }
 }
 
+function fin (promise, cb) {
+  let res = () => promise;
+  let f = () => Promise.resolve(cb()).then(res);
+  return promise.then(f, f);
+}
+
 function readMetadata(file) {
-  return ep.readMetadata(file).then((result) => {
+  // TODO: This whole dance is because of Sobesednik/node-exiftool/issues/20
+  let ascii = iconv.convert(file).toString(); // result of iconv is a buffer
+  if (ascii !== file) {
+    if (fs.existsSync(ascii)) {
+      throw ascii + ' file already exists. Can\'t rename ' + file + ' to it.'
+    }
+    console.error('renaming ' + file + ' to ' + ascii);
+    fs.renameSync(file, ascii);
+  }
+  return fin(ep.readMetadata(ascii), () => {
+    // rename back
+    if (ascii !== file) {
+      console.error('unreming ' + file + ' to ' + ascii);
+      fs.renameSync(ascii, file);
+    }
+  }).then((result) => {
     if (result.error) {
       throw result.error;
     }
@@ -318,7 +342,7 @@ function check (dbFile, verbose) {
   // TODO: This is a bit inefficient by reading everything into memory but who cares
   var files = [];
   rl.on('line', function (file) {
-    files.push(file);
+    files.push(file.toString());
   });
   rl.on('close', function () {
     loop(files);

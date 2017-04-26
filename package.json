@@ -4,6 +4,7 @@
     "dist-exiftool": "^10.33.1",
     "google-auth-library": "^0.10.0",
     "googleapis": "^19.0.0",
+    "iconv": "^2.2.3",
     "node-exiftool": "^2.1.1"
   }
 }
