@@ -229,37 +229,53 @@ function loadImage (file) {
 function check (dbFile, verbose) {
   let db = JSON.parse(fs.readFileSync(dbFile).toString());
 
+  function multiAdd(m, k, v) {
+    if (!m[k]) {
+      m[k] = [];
+    }
+    m[k].push(v);
+  }
+
+  function videoKey (entry) {
+    return Math.floor(entry.durationMillis / 1000);
+  }
+
+  let imageByKey = {};
+  let videoByDuration = {};
+  for (let i = 0; i < db.length; i++) {
+    let entry = normalize(db[i]);
+    if (entry.time != null) {
+      multiAdd(imageByKey, entry.time, entry);
+    }
+    if (entry.durationMillis != null) {
+      multiAdd(videoByDuration, videoKey(entry), entry);
+    }
+  }
+
+  function getCandidates (local) {
+    if (local.time != null) {
+      return imageByKey[local.time] || [];
+    }
+    if (local.durationMillis != null) {
+      let candidates = videoByDuration[videoKey(local)] || [];
+      return candidates.filter(remote => {
+        return Math.abs(local.durationMillis - remote.durationMillis) < Math.pow(10, 3 - local.precision);
+      });
+    }
+    return [];
+  }
+
   function loop(files) {
     if (files.length === 0) {
       process.exit(0);
     }
     let file = files.shift();
 
-    // for pictures match by time, for videos by duration
-    function matches (local, remote) {
-      if (local.time != null && remote.time != null) {
-        return local.time === remote.time;
-      } else if (local.durationMillis != null && remote.durationMillis != null) {
-        if (local.precision < 0 || local.precision > 3) {
-          throw 'incorrect precision';
-        }
-        return Math.abs(local.durationMillis - remote.durationMillis) < Math.pow(10, 3 - local.precision);
-      }
-      return false;
-    }
-
     function checkImage (file) {
       return loadImage(file).then((data) => {
         data = normalize(data);
 
-        let candidates = [];
-        for (let i = 0; i < db.length; i++) {
-          let entry = normalize(db[i]);
-          // for pictures
-          if (matches(data, entry)) {
-            candidates.push(entry);
-          }
-        }
+        let candidates = getCandidates(data);
 
         if (candidates.length === 0) {
           throw ('no matching keys');
