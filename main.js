@@ -11,9 +11,6 @@ var exiftool = require('node-exiftool')
 var exiftoolBin = require('dist-exiftool')
 var ep = new exiftool.ExiftoolProcess(exiftoolBin)
 
-var Iconv  = require('iconv').Iconv;
-var iconv = new Iconv('UTF-8', 'ASCII//TRANSLIT');
-
 // If modifying these scopes, delete your previously saved credentials
 // at ~/.credentials/drive-nodejs-quickstart.json
 var SCOPES = ['https://www.googleapis.com/auth/drive.metadata.readonly'];
@@ -191,13 +188,16 @@ function fin (promise, cb) {
   return promise.then(f, f);
 }
 
+function isAscii (str) {
+  return /^[ -~]+$/.test(str);
+}
+
 function readMetadata(file) {
   // TODO: This whole dance is because of Sobesednik/node-exiftool/issues/20
-  let ascii = iconv.convert(file).toString(); // result of iconv is a buffer
-  if (ascii !== file) {
-    if (fs.existsSync(ascii)) {
-      throw ascii + ' file already exists. Can\'t rename ' + file + ' to it.'
-    }
+  let ascii = file;
+  if (!isAscii (path.basename(file))) {
+    let dir = fs.mkdtempSync('read-metadata-');
+    ascii = path.join(dir, 'temp');
     console.error('renaming ' + file + ' to ' + ascii);
     fs.renameSync(file, ascii);
   }
